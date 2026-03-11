@@ -34,7 +34,8 @@
   ],
   "scripts": {
     "start": "node --import tsx src/bin/cli.ts",
-    "build": "tsc && tsup",
+    "generate:api": "openapi-typescript src/docs/template_openapi.json -o src/generated/template.ts",
+    "build": "npm run generate:api && tsc && tsup",
     "lint": "eslint . && npm run lint:lockfile && npm run lint:markdown",
     "lint:markdown": "npx -y markdownlint-cli@0.45.0 -c .github/.markdownlint.yml -i '.git' -i '__tests__' -i '.github' -i '.changeset' -i 'CODE_OF_CONDUCT.md' -i 'CHANGELOG.md' -i 'docs/**' -i 'node_modules' -i 'dist' '**/**.md' --fix",
     "lint:fix": "eslint . --fix",
@@ -77,6 +78,7 @@
     "axios": "^1.4.0",
     "chalk": "^5.2.0",
     "commander": "^13.1.0",
+    "openapi-fetch": "^0.17.0",
     "ora": "^8.2.0",
     "table": "^6.8.1"
   },
@@ -91,6 +93,7 @@
     "lint-staged": "^15.2.7",
     "lockfile-lint": "^4.14.0",
     "neostandard": "^0.11.0",
+    "openapi-typescript": "^7.13.0",
     "ts-node": "^10.9.2",
     "tsup": "^8.1.0",
     "tsx": "^4.19.4",

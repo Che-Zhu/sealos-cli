@@ -1,47 +1,67 @@
 import { Command } from 'commander'
 import { upsertContext } from '../../lib/config.ts'
+import { deviceGrantLogin } from '../../lib/oauth.ts'
 import { success, error as logError, spinner } from '../../lib/output.ts'
 import { handleError } from '../../lib/errors.ts'
 
 export function createLoginCommand (): Command {
   return new Command('login')
     .description('Login to Sealos Cloud')
-    .argument('[host]', 'Sealos host (e.g., hzh.sealos.run)')
+    .argument('<host>', 'Sealos host (e.g., usw.sealos.io or https://usw.sealos.io)')
     .option('-t, --token <token>', 'Login with token')
-    .action(async (host, options) => {
+    .action(async (host: string, options) => {
+      // Login flow:
+      // 1. With --token: save token directly as context
+      // 2. Without --token: OAuth2 Device Grant (RFC 8628)
+      //    a. Request device code from /api/auth/oauth2/device
+      //    b. User opens browser to authorize
+      //    c. Poll /api/auth/oauth2/token until approved
+      //    d. Exchange access_token for kubeconfig
+      //    e. Save kubeconfig as context token
       try {
         const spin = spinner('Logging in...')
+        const region = normalizeHost(host)
 
-        // TODO: 实现登录逻辑
-        // 1. 如果提供 --token，直接使用 token 登录
+        // Direct token login
         if (options.token) {
-          // 直接保存 token
-          const context = {
-            name: host || 'default',
-            host: host ? `https://${host}` : '',
+          upsertContext({
+            name: host,
+            host: region,
             token: options.token,
             workspace: 'default'
-          }
-          upsertContext(context)
-          spin.succeed(`Logged in to ${host || 'default'}`)
+          })
+          spin.succeed(`Logged in to ${host}`)
           return
         }
 
-        // 2. 否则唤起浏览器授权
-        // TODO: 实现 OAuth 流程
-        // - 启动本地 HTTP 服务器监听回调
-        // - 打开浏览器到授权页面
-        // - 等待回调并获取 token
-        // - 保存 token 到配置文件
+        // OAuth2 Device Grant flow
+        const result = await deviceGrantLogin(region, spin)
 
-        // 3. 验证 token 是否有效
-        // TODO: 调用 API 验证
+        // Save kubeconfig as context token
+        upsertContext({
+          name: host,
+          host: result.region,
+          token: result.kubeconfig,
+          workspace: 'default'
+        })
 
-        spin.succeed('Login successful')
-        success(`You are now logged in to ${host || 'Sealos Cloud'}`)
+        spin.succeed(`Logged in to ${host}`)
+        success('Authentication successful')
       } catch (err) {
         logError('Login failed')
         handleError(err)
       }
     })
+}
+
+/**
+ * Normalize a host argument to an https:// URL.
+ * Accepts bare hostnames (usw.sealos.io) or full URLs (https://usw.sealos.io).
+ */
+function normalizeHost (host: string): string {
+  const trimmed = host.replace(/\/+$/, '')
+  if (trimmed.startsWith('https://') || trimmed.startsWith('http://')) {
+    return trimmed
+  }
+  return `https://${trimmed}`
 }

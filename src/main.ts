@@ -42,6 +42,10 @@ export function runCLI (): void {
   try {
     program.parse(process.argv)
   } catch (error) {
+    if (error instanceof Error && 'code' in error &&
+      typeof error.code === 'string' && error.code.startsWith('commander.')) {
+      process.exit(0)
+    }
     handleError(error)
   }
 }
