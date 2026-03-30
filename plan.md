@@ -131,21 +131,33 @@ Flags:
 ## 5. 模板模块
 
 ```bash
-# 列出可用模板
-sealos template list [flags]
-sealos template list --type=devbox
-sealos template list --type=app
+# 列出可用模板（公开，无需认证）
+sealos template list [-c category] [-o json|table]
 
-# 创建资源(使用模板)
-sealos template create <TEMPLATE_NAME> [flags]
-sealos template create nextjs --name=my-app
+# 查看模板详情（公开，无需认证）
+sealos template get <NAME> [-o json|table]
+sealos template describe <NAME>  # get 的别名
 
-# 查看模板详情
-sealos template get <TEMPLATE_NAME>
-sealos template describe <TEMPLATE_NAME>
+# 从模板目录部署（需认证）
+sealos template deploy <TEMPLATE> --name <NAME> [--set KEY=VALUE ...]
 
-# 搜索模板
-sealos template search <KEYWORD>
+# 从 raw YAML 部署（需认证）
+sealos template deploy --file <path> [--set KEY=VALUE ...] [--dry-run]
+sealos template deploy --yaml <string> [--set KEY=VALUE ...]
+cat template.yaml | sealos template deploy [--dry-run]
+```
+
+### Template 参数说明
+
+```bash
+Flags:
+  -c, --category string   按类别筛选
+  -o, --output string     输出格式: json, table (default: "table")
+  --name string           实例名称 (从目录部署时必填)
+  --file string           模板 YAML 文件路径
+  --yaml string           模板 YAML 字符串
+  --set KEY=VALUE         设置模板参数，可多次使用
+  --dry-run               仅校验，不创建资源
 ```
 
 ## 6. 数据库模块

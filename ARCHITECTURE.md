@@ -191,5 +191,133 @@ export function createExampleCommand(): Command {
 3. Add progress bars for file uploads
 4. Support nested config key access
 5. Add command aliases
-6. Implement OAuth flow for login
-7. Add shell completion scripts
+6. Add shell completion scripts
+
+---
+
+## New: Type-Safe OpenAPI Client + OAuth2 Login
+
+> This section describes the newly introduced architecture, independent from the above. The template command has been migrated to this approach. All new commands should use it.
+
+### Flow
+
+```
+OpenAPI Spec (src/docs/*.json)
+       │
+       │  npx openapi-typescript (generated at build time)
+       ▼
+Generated Types (src/generated/*.ts)
+       │
+       │  import type { paths }
+       ▼
+Typed Client Factory (src/lib/api-client.ts)
+       │
+       │  createTemplateClient()
+       ▼
+Command handler wrapped with withAuth / withErrorHandling
+       │
+       ▼
+src/commands/template/index.ts (all subcommands)
+```
+
+### Build
+
+```json
+{
+  "generate:api": "openapi-typescript src/docs/template_openapi.json -o src/generated/template.ts",
+  "build": "npm run generate:api && tsc && tsup"
+}
+```
+
+### Authentication: OAuth2 Device Grant Flow (RFC 8628)
+
+`sealos login <host>` without `-t` triggers the device authorization flow. With `-t` the token is saved directly.
+
+```
+sealos login <host>
+       │
+       ▼
+oauth.ts: requestDeviceAuthorization(region)
+  POST /api/auth/oauth2/device → { device_code, user_code, verification_uri }
+       │
+       ▼
+User opens browser to authorize
+       │
+       ▼
+oauth.ts: pollForToken(region, deviceCode, interval, expiresIn)
+  POST /api/auth/oauth2/token → poll until { access_token }
+  Handles: authorization_pending, slow_down (+5s), access_denied, expired_token
+  Hard cap: 10 minutes
+       │
+       ▼
+oauth.ts: exchangeForKubeconfig(region, accessToken)
+  POST /api/auth/getDefaultKubeconfig → { data: { kubeconfig } }
+       │
+       ▼
+config.ts: upsertContext({ name, host, token: kubeconfig, workspace })
+  → ~/.sealos/config.json
+```
+
+### API Authentication Chain
+
+After login, the kubeconfig is stored as `context.token`. API calls obtain it via `auth.ts`:
+
+```
+auth.ts: getToken() → getCurrentContext().token
+       │
+       ▼
+auth.ts: getAuthHeaders() → { Authorization: encodeURIComponent(token) }
+       │
+       ▼
+API request headers
+```
+
+`api-client.ts` validates that a host is configured when creating a client. Throws `ConfigError` if not.
+
+### Command Handler HOF
+
+```ts
+// Authenticated commands (deploy-raw, create-instance)
+.action(withAuth({ spinnerText: 'Creating...' }, async (ctx, template, options) => {
+  const client = createTemplateClient()
+  const { data, error, response } = await client.POST('/templates/instances', {
+    headers: ctx.auth,
+    body: { ... }
+  })
+  if (error) throw mapApiError(response.status, error)
+}))
+
+// Public commands (list, get — no auth required)
+.action(withErrorHandling({ spinnerText: 'Loading...' }, async (ctx, options) => {
+  const client = createTemplateClient()
+  const { data, error, response } = await client.GET('/templates', { ... })
+  if (error) throw mapApiError(response.status, error)
+}))
+```
+
+### Error Handling
+
+Unified API error format: `{ error: { type, code, message, details? } }`
+
+`mapApiError(status, body)` maps to `AuthError` (401) or `ApiError` (other).
+
+### Files
+
+| File | Role |
+|------|------|
+| `src/lib/constants.ts` | OAuth2 `CLIENT_ID` |
+| `src/lib/oauth.ts` | Device grant flow: request → poll → exchange → browser open |
+| `src/commands/auth/login.ts` | Login command: `-t` direct token or device grant |
+| `src/docs/template_openapi.json` | OpenAPI 3.1.0 spec |
+| `src/generated/template.ts` | Auto-generated types (do not edit manually) |
+| `src/lib/auth.ts` | getToken / getAuthHeaders / requireAuth |
+| `src/lib/with-auth.ts` | withAuth / withErrorHandling HOF |
+| `src/lib/api-client.ts` | Client factory + host validation |
+| `src/commands/template/index.ts` | Template commands |
+
+### Adding a New API
+
+1. Place spec at `src/docs/<name>_openapi.json`
+2. Extend the `generate:api` script
+3. Add `create<Name>Client()` in `api-client.ts`
+4. Use typed client + withAuth in the command
